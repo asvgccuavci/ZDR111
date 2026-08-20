@@ -693,15 +693,12 @@ async function loadAdminStudents() {
   try {
     const res = await fetchAdminStudents({
       search: currentStudentSearch,
-      page: currentAdminPage,
-      pageSize: 20,
     });
 
     if (res.ok && res.students) {
       if (paginationInfo) {
         const total = res.total || 0;
-        const totalPages = Math.ceil(total / 20) || 1;
-        paginationInfo.textContent = `共 ${total} 名学生 · 第 ${res.page} / ${totalPages} 页`;
+        paginationInfo.textContent = `共 ${total} 名学生`;
       }
 
       if (res.students.length === 0) {

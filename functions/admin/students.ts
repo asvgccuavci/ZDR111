@@ -18,13 +18,10 @@ export const onRequest = async (context: any) => { const req = context.request;
     await ensureInitialized();
     const url = new URL(req.url);
 
-    // GET - List & search students
+    // GET - List all students (no pagination)
     if (req.method === "GET") {
       const search = url.searchParams.get("search")?.trim() || "";
       const className = url.searchParams.get("class")?.trim() || "";
-      const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-      const pageSize = Math.min(100, Math.max(10, parseInt(url.searchParams.get("pageSize") || "30", 10)));
-      const offset = (page - 1) * pageSize;
 
       let whereSql = "";
       let params: any[] = [];
@@ -39,10 +36,7 @@ export const onRequest = async (context: any) => { const req = context.request;
         params = [`%${search}%`];
       }
 
-      const countResult = await queryOne<{ count: string }>(`SELECT count(*) as count FROM students ${whereSql}`, params);
-      const total = Number(countResult?.count || 0);
-
-      const rows = await query<any>(`SELECT * FROM students ${whereSql} ORDER BY class_name, name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, pageSize, offset]);
+      const rows = await query<any>(`SELECT * FROM students ${whereSql} ORDER BY class_name, name`, params);
 
       const students = rows.map((r: any) => {
         let courses = [];
@@ -53,7 +47,7 @@ export const onRequest = async (context: any) => { const req = context.request;
         };
       });
 
-      return new Response(JSON.stringify({ ok: true, total, page, pageSize, students }), { status: 200, headers: SECURITY_HEADERS });
+      return new Response(JSON.stringify({ ok: true, total: students.length, students }), { status: 200, headers: SECURITY_HEADERS });
     }
 
     // POST - Create or Update student
