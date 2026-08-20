@@ -1,6 +1,9 @@
 import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 import * as schema from "./schema.js";
+
+// Cloudflare Workers 兼容配置
+neonConfig.fetchConnectionCache = true;
 
 // 数据库连接实例（延迟初始化，兼容 Cloudflare Pages Functions 的 context.env）
 let dbInstance: ReturnType<typeof drizzle> | null = null;
@@ -15,14 +18,12 @@ const DEFAULT_DATABASE_URL = "postgresql://neondb_owner:npg_f5JbVgzQI1nl@ep-mute
 export function initDb(connectionString?: string) {
   if (!dbInstance) {
     const connStr = connectionString || DEFAULT_DATABASE_URL;
-    console.log("[DB] initDb called, connStr length:", connStr?.length, "prefix:", connStr?.slice(0, 20));
+    console.log("[DB] initDb called, connStr length:", connStr?.length);
     if (!connStr) {
       throw new Error("Database connection string is empty");
     }
     try {
-      const sql = neon(connStr, {
-        fetch: (url: string, options: any) => fetch(url, options),
-      });
+      const sql = neon(connStr);
       dbInstance = drizzle(sql, { schema });
       console.log("[DB] initDb success");
     } catch (e: any) {
