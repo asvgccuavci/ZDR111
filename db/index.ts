@@ -15,8 +15,20 @@ const DEFAULT_DATABASE_URL = "postgresql://neondb_owner:npg_f5JbVgzQI1nl@ep-mute
 export function initDb(connectionString?: string) {
   if (!dbInstance) {
     const connStr = connectionString || DEFAULT_DATABASE_URL;
-    const sql = neon(connStr);
-    dbInstance = drizzle(sql, { schema });
+    console.log("[DB] initDb called, connStr length:", connStr?.length, "prefix:", connStr?.slice(0, 20));
+    if (!connStr) {
+      throw new Error("Database connection string is empty");
+    }
+    try {
+      const sql = neon(connStr, {
+        fetch: (url: string, options: any) => fetch(url, options),
+      });
+      dbInstance = drizzle(sql, { schema });
+      console.log("[DB] initDb success");
+    } catch (e: any) {
+      console.error("[DB] initDb error:", e?.message || String(e));
+      throw e;
+    }
   }
   return dbInstance;
 }
