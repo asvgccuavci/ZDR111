@@ -58,6 +58,12 @@ export const onRequest = async (context: any) => { const req = context.request;
         ok: false,
         error: "Failed to retrieve system status",
         detail: err?.message || String(err),
+        debug: {
+          envKeys: context.env ? Object.keys(context.env) : [],
+          hasDbUrl: !!context.env?.DATABASE_URL,
+          dbUrlType: typeof context.env?.DATABASE_URL,
+          dbUrlLength: context.env?.DATABASE_URL?.length,
+        },
         allowQuery: true,
       }),
       { status: 500, headers: SECURITY_HEADERS }
