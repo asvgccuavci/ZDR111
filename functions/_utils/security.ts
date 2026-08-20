@@ -4,8 +4,17 @@ import crypto from "node:crypto";
 export const ADMIN_USERNAME = "张东然";
 export const ADMIN_PASSWORD = "FhsigJgajgsigy453483";
 
-// Secret for signing admin session tokens
-const TOKEN_SECRET = process.env.ADMIN_TOKEN_SECRET || "neepu-auto-grade-secret-key-2026-secure-token";
+// Secret for signing admin session tokens（延迟初始化，兼容 Cloudflare Workers）
+let TOKEN_SECRET = "neepu-auto-grade-secret-key-2026-secure-token";
+
+/**
+ * 初始化安全配置（从 context.env 读取环境变量）
+ */
+export function initSecurity(env: { ADMIN_TOKEN_SECRET?: string }) {
+  if (env.ADMIN_TOKEN_SECRET) {
+    TOKEN_SECRET = env.ADMIN_TOKEN_SECRET;
+  }
+}
 
 export interface AdminSession {
   username: string;
