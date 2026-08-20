@@ -5,8 +5,6 @@ import { SECURITY_HEADERS } from "../_utils/security.js";
 import { sql } from "drizzle-orm";
 
 export const onRequest = async (context: any) => { const req = context.request;
-  // 初始化数据库连接（从 context.env 获取环境变量，兼容 Cloudflare Pages Functions）
-  initDb(context.env.DATABASE_URL);
 
   if (req.method !== "GET" && req.method !== "HEAD") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
@@ -16,6 +14,13 @@ export const onRequest = async (context: any) => { const req = context.request;
   }
 
   try {
+    // 初始化数据库连接（从 context.env 获取环境变量，兼容 Cloudflare Pages Functions）
+    const dbUrl = context.env?.DATABASE_URL;
+    if (!dbUrl) {
+      throw new Error("DATABASE_URL environment variable is not set");
+    }
+    initDb(dbUrl);
+
     const db = getDb();
     await ensureInitialized();
 
@@ -56,6 +61,7 @@ export const onRequest = async (context: any) => { const req = context.request;
       JSON.stringify({
         ok: false,
         error: "Failed to retrieve system status",
+        detail: err?.message || String(err),
         allowQuery: true,
       }),
       { status: 500, headers: SECURITY_HEADERS }

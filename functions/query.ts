@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { eq, and } from "drizzle-orm";
 import {
   initDb,
@@ -12,6 +11,14 @@ import {
 } from "./_utils/db-service.js";
 import * as schema from "../db/schema.js";
 import { getClientIp, timingSafeCompare, SECURITY_HEADERS } from "./_utils/security.js";
+
+// 使用 Web Crypto API 生成 HMAC-SHA256 hex 摘要（Cloudflare Workers 兼容）
+async function hmacSha256Hex(key: string, data: string): Promise<string> {
+  const enc = new TextEncoder();
+  const ck = await crypto.subtle.importKey("raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", ck, enc.encode(data));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
 
 
 export const onRequest = async (context: any) => { const req = context.request;
@@ -199,10 +206,7 @@ export const onRequest = async (context: any) => { const req = context.request;
     }
     const timestamp = new Date().toISOString();
     // Digital verification code generated using HMAC of student ID + timestamp
-    const verificationCode = crypto
-      .createHmac("sha256", "neepu-auto-grade-verify-2026")
-      .update(`${student.studentId}_${timestamp}`)
-      .digest("hex")
+    const verificationCode = (await hmacSha256Hex("neepu-auto-grade-verify-2026", `${student.studentId}_${timestamp}`))
       .slice(0, 16)
       .toUpperCase();
     // Mask student ID for privacy display (e.g. 2023303010113 -> 20233030***13)

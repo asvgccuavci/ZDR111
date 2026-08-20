@@ -14,7 +14,7 @@ export const onRequest = async (context: any) => { const req = context.request;
   // Verify Admin authorization
   const authHeader = req.headers.get("authorization");
   const token = authHeader?.replace(/^Bearer\s+/i, "") || "";
-  const session = verifyAdminToken(token);
+  const session = await verifyAdminToken(token);
 
   if (!session) {
     return new Response(JSON.stringify({ ok: false, message: "未授权或登录已过期" }), {

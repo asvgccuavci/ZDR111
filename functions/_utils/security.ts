@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+// Cloudflare Workers 兼容版本：使用 Web Crypto API 替代 node:crypto，使用 TextEncoder/TextDecoder 替代 Buffer
 
 // Configured Administrator Credentials
 export const ADMIN_USERNAME = "张东然";
@@ -23,49 +23,99 @@ export interface AdminSession {
   exp: number;
 }
 
+// ========== Web Crypto API 工具函数 ==========
+
+const te = new TextEncoder();
+const td = new TextDecoder();
+
+/** 将字符串或二进制数据转为 base64url 编码 */
+function toB64Url(data: string | ArrayBuffer | Uint8Array): string {
+  let bytes: Uint8Array;
+  if (typeof data === "string") {
+    bytes = te.encode(data);
+  } else if (data instanceof Uint8Array) {
+    bytes = data;
+  } else {
+    bytes = new Uint8Array(data);
+  }
+  let bin = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    bin += String.fromCharCode(bytes[i]);
+  }
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** 将 base64url 字符串解码为 Uint8Array */
+function fromB64Url(str: string): Uint8Array {
+  let b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/** 使用 HMAC-SHA256 签名，返回 base64url 编码的签名 */
+async function hmacSign(key: string, data: string): Promise<string> {
+  const ck = await crypto.subtle.importKey(
+    "raw",
+    te.encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", ck, te.encode(data));
+  return toB64Url(sig);
+}
+
 /**
  * Timing-safe string comparison to prevent timing attacks
  */
 export function timingSafeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  if (bufA.length !== bufB.length) {
-    // compare with self to prevent short-circuiting timing leaks
-    crypto.timingSafeEqual(bufA, bufA);
+  const ba = te.encode(a);
+  const bb = te.encode(b);
+  if (ba.length !== bb.length) {
     return false;
   }
-  return crypto.timingSafeEqual(bufA, bufB);
+  let r = 0;
+  for (let i = 0; i < ba.length; i++) {
+    r |= ba[i] ^ bb[i];
+  }
+  return r === 0;
 }
 
 /**
  * Generate a signed session token for admin
  */
-export function createAdminToken(username: string): string {
+export async function createAdminToken(username: string): Promise<string> {
   const payload: AdminSession = {
     username,
     role: "admin",
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 2 * 60 * 60, // 2 hours
   };
-  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const signature = crypto.createHmac("sha256", TOKEN_SECRET).update(payloadB64).digest("base64url");
+  const payloadB64 = toB64Url(JSON.stringify(payload));
+  const signature = await hmacSign(TOKEN_SECRET, payloadB64);
   return `${payloadB64}.${signature}`;
 }
 
 /**
  * Verify and parse admin session token
  */
-export function verifyAdminToken(token: string | null | undefined): AdminSession | null {
+export async function verifyAdminToken(token: string | null | undefined): Promise<AdminSession | null> {
   if (!token) return null;
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [payloadB64, signature] = parts;
-  const expectedSignature = crypto.createHmac("sha256", TOKEN_SECRET).update(payloadB64).digest("base64url");
+  const expectedSignature = await hmacSign(TOKEN_SECRET, payloadB64);
   if (!timingSafeCompare(signature, expectedSignature)) {
     return null;
   }
   try {
-    const payloadJson = Buffer.from(payloadB64, "base64url").toString("utf8");
+    const payloadBytes = fromB64Url(payloadB64);
+    const payloadJson = td.decode(payloadBytes);
     const session: AdminSession = JSON.parse(payloadJson);
     if (session.exp < Math.floor(Date.now() / 1000)) {
       return null; // Expired

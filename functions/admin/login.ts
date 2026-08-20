@@ -44,7 +44,7 @@ export const onRequest = async (context: any) => { const req = context.request;
         { status: 401, headers: SECURITY_HEADERS }
       );
     }
-    const token = createAdminToken(username);
+    const token = await createAdminToken(username);
     await logAudit({
       ip: clientIp,
       action: "ADMIN_LOGIN",
