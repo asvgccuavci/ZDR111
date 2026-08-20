@@ -70,21 +70,57 @@ export async function ensureInitialized() {
       );
     }
 
-    // 3. Seed students if table is empty
+    // 3. Seed students if table is not fully seeded (支持断点续传)
     const countResult = await queryOne<{ count: string }>("SELECT count(*) as count FROM students");
     const count = Number(countResult?.count || 0);
-    if (count === 0 && Array.isArray(seedStudents) && seedStudents.length > 0) {
-      console.log(`Seeding ${seedStudents.length} student records into database...`);
-      for (const s of seedStudents) {
-        await query(
-          `INSERT INTO students (id, student_id, name, class_name, password, courses_json, query_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
-          [s.id, s.studentId, s.name, s.className, s.password, JSON.stringify(s.courses), true]
-        );
+    const totalSeed = Array.isArray(seedStudents) ? seedStudents.length : 0;
+    if (count < totalSeed && totalSeed > 0) {
+      console.log(`Seeding students... current: ${count}, target: ${totalSeed}`);
+      // 批量插入，每批 20 条，避免超时
+      const batchSize = 20;
+      let inserted = 0;
+      for (let i = 0; i < seedStudents.length; i += batchSize) {
+        const batch = seedStudents.slice(i, i + batchSize);
+        // 构造批量插入 SQL
+        const values: string[] = [];
+        const params: any[] = [];
+        batch.forEach((s, idx) => {
+          const base = idx * 7;
+          values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`);
+          params.push(s.id, s.studentId, s.name, s.className, s.password, JSON.stringify(s.courses), true);
+        });
+        const sql = `INSERT INTO students (id, student_id, name, class_name, password, courses_json, query_enabled) VALUES ${values.join(", ")} ON CONFLICT (id) DO NOTHING`;
+        try {
+          await query(sql, params);
+          inserted += batch.length;
+        } catch (e) {
+          console.error(`Batch insert error at index ${i}:`, e);
+          // 单条重试
+          for (const s of batch) {
+            try {
+              await query(
+                `INSERT INTO students (id, student_id, name, class_name, password, courses_json, query_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+                [s.id, s.studentId, s.name, s.className, s.password, JSON.stringify(s.courses), true]
+              );
+              inserted++;
+            } catch (e2) {
+              console.error("Single insert error:", s.id, e2);
+            }
+          }
+        }
+        // 每批后检查是否接近超时，预留安全余量
+        if (inserted >= 100) break;
       }
-      console.log("Database successfully seeded with students.");
+      console.log(`Seeded ${inserted} students this run.`);
+      // 检查是否全部导入完成
+      const finalCount = Number((await queryOne<{ count: string }>("SELECT count(*) as count FROM students"))?.count || 0);
+      if (finalCount >= totalSeed) {
+        isSeeded = true;
+        console.log("All students seeded successfully.");
+      }
+    } else {
+      isSeeded = true;
     }
-
-    isSeeded = true;
   } catch (err) {
     console.warn("Database initialization notice (will retry on next request):", err);
   }
