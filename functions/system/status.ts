@@ -1,8 +1,6 @@
-import { getSetting, ensureInitialized, initDb, getDb } from "../_utils/db-service.js";
-
-import * as schema from "../../db/schema.js";
+import { getSetting, ensureInitialized, initDb } from "../_utils/db-service.js";
+import { query, queryOne } from "../../db/index.js";
 import { SECURITY_HEADERS } from "../_utils/security.js";
-import { sql } from "drizzle-orm";
 
 export const onRequest = async (context: any) => { const req = context.request;
 
@@ -14,10 +12,7 @@ export const onRequest = async (context: any) => { const req = context.request;
   }
 
   try {
-    // 初始化数据库连接（从 context.env 获取环境变量，兼容 Cloudflare Pages Functions）
     initDb(context.env?.DATABASE_URL);
-
-    const db = getDb();
     await ensureInitialized();
 
     const allowQueryStr = await getSetting("allow_query", "true");
@@ -25,18 +20,13 @@ export const onRequest = async (context: any) => { const req = context.request;
     const maintenanceReason = await getSetting("maintenance_reason", "系统正在进行成绩复核与安全维护，成绩查询通道暂时关闭，请稍后再试。");
     const allowedClassesStr = await getSetting("allowed_classes", "ALL");
 
-    // Fetch total student count and list of classes
-    const countResult = await db
-      .select({ count: sql<number>`cast(count(*) as integer)` })
-      .from(schema.students);
-    const totalStudents = Number(countResult[0]?.count || 0);
+    const countResult = await queryOne<{ count: string }>("SELECT count(*) as count FROM students");
+    const totalStudents = Number(countResult?.count || 0);
 
-    const classesResult = await db
-      .selectDistinct({ className: schema.students.className })
-      .from(schema.students);
-    const classes = classesResult.map(c => c.className).sort();
+    const classesResult = await query<{ class_name: string }>("SELECT DISTINCT class_name FROM students ORDER BY class_name");
+    const classes = classesResult.map(c => c.class_name).sort();
 
-    const responseData = {
+    return new Response(JSON.stringify({
       ok: true,
       allowQuery: allowQueryStr === "true",
       announcement,
@@ -45,28 +35,14 @@ export const onRequest = async (context: any) => { const req = context.request;
       totalStudents,
       classes,
       serverTime: new Date().toISOString(),
-    };
-
-    return new Response(JSON.stringify(responseData), {
-      status: 200,
-      headers: SECURITY_HEADERS,
-    });
+    }), { status: 200, headers: SECURITY_HEADERS });
   } catch (err: any) {
     console.error("System status error:", err);
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        error: "Failed to retrieve system status",
-        detail: err?.message || String(err),
-        debug: {
-          envKeys: context.env ? Object.keys(context.env) : [],
-          hasDbUrl: !!context.env?.DATABASE_URL,
-          dbUrlType: typeof context.env?.DATABASE_URL,
-          dbUrlLength: context.env?.DATABASE_URL?.length,
-        },
-        allowQuery: true,
-      }),
-      { status: 500, headers: SECURITY_HEADERS }
-    );
+    return new Response(JSON.stringify({
+      ok: false,
+      error: "Failed to retrieve system status",
+      detail: err?.message || String(err),
+      allowQuery: true,
+    }), { status: 500, headers: SECURITY_HEADERS });
   }
 };

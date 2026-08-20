@@ -1,21 +1,60 @@
-import { eq, desc, and, sql } from "drizzle-orm";
-import { initDb, getDb } from "../../db/index.js";
-export { initDb, getDb };
-import * as schema from "../../db/schema.js";
+import { initDb, query, queryOne } from "../../db/index.js";
+export { initDb };
 import { seedStudents } from "../_data/students-seed.js";
 
 let isSeeded = false;
 
 /**
- * Ensures system settings and default 581 students are initialized in the database
+ * Ensures tables, system settings and default 581 students are initialized
  */
 export async function ensureInitialized() {
   if (isSeeded) return;
-  const db = getDb();
   try {
-    // 1. Check if default system settings exist
-    const settings = await db.select().from(schema.systemSettings);
-    const settingsMap = new Map(settings.map(s => [s.key, s.value]));
+    // 1. Create tables if not exist
+    await query(`
+      CREATE TABLE IF NOT EXISTS students (
+        id TEXT PRIMARY KEY,
+        student_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        class_name TEXT NOT NULL,
+        password TEXT NOT NULL,
+        courses_json TEXT NOT NULL,
+        query_enabled BOOLEAN DEFAULT true NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        id SERIAL PRIMARY KEY,
+        key TEXT UNIQUE NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        ip TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target TEXT,
+        status TEXT NOT NULL,
+        details TEXT,
+        user_agent TEXT
+      )
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS ip_rate_limits (
+        id SERIAL PRIMARY KEY,
+        ip TEXT UNIQUE NOT NULL,
+        failed_attempts INTEGER DEFAULT 0 NOT NULL,
+        last_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        blocked_until TIMESTAMP
+      )
+    `);
+
+    // 2. Insert default settings
     const defaultSettings: Record<string, string> = {
       allow_query: "true",
       announcement: "2024-2025学年第二学期期末成绩已发布，请各位同学输入准确的班级、姓名及出生年月（8位）进行查询。",
@@ -25,33 +64,26 @@ export async function ensureInitialized() {
       rate_limit_lockout_minutes: "15",
     };
     for (const [key, value] of Object.entries(defaultSettings)) {
-      if (!settingsMap.has(key)) {
-        await db.insert(schema.systemSettings).values({ key, value }).onConflictDoNothing();
-      }
+      await query(
+        `INSERT INTO system_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+        [key, value]
+      );
     }
-    // 2. Check if students table has records
-    const studentCountResult = await db
-      .select({ count: sql<number>`cast(count(*) as integer)` })
-      .from(schema.students);
-    const count = Number(studentCountResult[0]?.count || 0);
+
+    // 3. Seed students if table is empty
+    const countResult = await queryOne<{ count: string }>("SELECT count(*) as count FROM students");
+    const count = Number(countResult?.count || 0);
     if (count === 0 && Array.isArray(seedStudents) && seedStudents.length > 0) {
       console.log(`Seeding ${seedStudents.length} student records into database...`);
-      // Batch insert in chunks of 50 to avoid parameter limit
-      const chunkSize = 50;
-      for (let i = 0; i < seedStudents.length; i += chunkSize) {
-        const chunk = seedStudents.slice(i, i + chunkSize).map(s => ({
-          id: s.id,
-          studentId: s.studentId,
-          name: s.name,
-          className: s.className,
-          password: s.password,
-          coursesJson: JSON.stringify(s.courses),
-          queryEnabled: true,
-        }));
-        await db.insert(schema.students).values(chunk).onConflictDoNothing();
+      for (const s of seedStudents) {
+        await query(
+          `INSERT INTO students (id, student_id, name, class_name, password, courses_json, query_enabled) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+          [s.id, s.studentId, s.name, s.className, s.password, JSON.stringify(s.courses), true]
+        );
       }
       console.log("Database successfully seeded with students.");
     }
+
     isSeeded = true;
   } catch (err) {
     console.warn("Database initialization notice (will retry on next request):", err);
@@ -62,17 +94,13 @@ export async function ensureInitialized() {
  * Get a system setting by key
  */
 export async function getSetting(key: string, defaultValue: string = ""): Promise<string> {
-  const db = getDb();
   try {
     await ensureInitialized();
-    const rows = await db
-      .select()
-      .from(schema.systemSettings)
-      .where(eq(schema.systemSettings.key, key))
-      .limit(1);
-    if (rows.length > 0) {
-      return rows[0].value;
-    }
+    const row = await queryOne<{ value: string }>(
+      "SELECT value FROM system_settings WHERE key = $1 LIMIT 1",
+      [key]
+    );
+    if (row) return row.value;
   } catch (err) {
     console.error("Error reading setting:", key, err);
   }
@@ -83,15 +111,12 @@ export async function getSetting(key: string, defaultValue: string = ""): Promis
  * Update or set a system setting
  */
 export async function setSetting(key: string, value: string): Promise<void> {
-  const db = getDb();
   await ensureInitialized();
-  await db
-    .insert(schema.systemSettings)
-    .values({ key, value })
-    .onConflictDoUpdate({
-      target: schema.systemSettings.key,
-      set: { value, updatedAt: new Date() },
-    });
+  await query(
+    `INSERT INTO system_settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`,
+    [key, value]
+  );
 }
 
 /**
@@ -101,21 +126,16 @@ export async function logAudit(entry: {
   ip: string;
   action: string;
   target?: string;
-  status: "SUCCESS" | "FAILED_PASSWORD" | "NOT_FOUND" | "BLOCKED" | "RATE_LIMITED";
+  status: string;
   details?: string;
   userAgent?: string;
 }) {
-  const db = getDb();
   try {
     await ensureInitialized();
-    await db.insert(schema.auditLogs).values({
-      ip: entry.ip,
-      action: entry.action,
-      target: entry.target || null,
-      status: entry.status,
-      details: entry.details || null,
-      userAgent: entry.userAgent || null,
-    });
+    await query(
+      `INSERT INTO audit_logs (ip, action, target, status, details, user_agent) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [entry.ip, entry.action, entry.target || null, entry.status, entry.details || null, entry.userAgent || null]
+    );
   } catch (err) {
     console.error("Failed to write audit log:", err);
   }
@@ -125,28 +145,24 @@ export async function logAudit(entry: {
  * Check if IP is currently rate-limited
  */
 export async function checkRateLimit(ip: string): Promise<{ isBlocked: boolean; remainingLockoutSeconds?: number }> {
-  const db = getDb();
   try {
     await ensureInitialized();
-    const rows = await db
-      .select()
-      .from(schema.ipRateLimits)
-      .where(eq(schema.ipRateLimits.ip, ip))
-      .limit(1);
-    if (rows.length > 0) {
-      const record = rows[0];
-      if (record.blockedUntil) {
-        const now = new Date();
-        if (now < record.blockedUntil) {
-          const remainingSeconds = Math.ceil((record.blockedUntil.getTime() - now.getTime()) / 1000);
-          return { isBlocked: true, remainingLockoutSeconds: remainingSeconds };
-        } else {
-          // Lockout has expired, reset attempts
-          await db
-            .update(schema.ipRateLimits)
-            .set({ failedAttempts: 0, blockedUntil: null, lastAttempt: now })
-            .where(eq(schema.ipRateLimits.ip, ip));
-        }
+    const row = await queryOne<any>(
+      "SELECT failed_attempts, blocked_until FROM ip_rate_limits WHERE ip = $1 LIMIT 1",
+      [ip]
+    );
+    if (row && row.blocked_until) {
+      const now = new Date();
+      const blockedUntil = new Date(row.blocked_until);
+      if (now < blockedUntil) {
+        const remainingSeconds = Math.ceil((blockedUntil.getTime() - now.getTime()) / 1000);
+        return { isBlocked: true, remainingLockoutSeconds: remainingSeconds };
+      } else {
+        // Lockout has expired, reset attempts
+        await query(
+          "UPDATE ip_rate_limits SET failed_attempts = 0, blocked_until = NULL, last_attempt = CURRENT_TIMESTAMP WHERE ip = $1",
+          [ip]
+        );
       }
     }
   } catch (err) {
@@ -159,36 +175,27 @@ export async function checkRateLimit(ip: string): Promise<{ isBlocked: boolean; 
  * Record a failed attempt for an IP
  */
 export async function recordFailedAttempt(ip: string, maxAttempts = 5, lockoutMinutes = 15) {
-  const db = getDb();
   try {
     await ensureInitialized();
-    const rows = await db
-      .select()
-      .from(schema.ipRateLimits)
-      .where(eq(schema.ipRateLimits.ip, ip))
-      .limit(1);
-    const now = new Date();
-    if (rows.length === 0) {
-      await db.insert(schema.ipRateLimits).values({
-        ip,
-        failedAttempts: 1,
-        lastAttempt: now,
-      });
+    const row = await queryOne<any>(
+      "SELECT failed_attempts, blocked_until FROM ip_rate_limits WHERE ip = $1 LIMIT 1",
+      [ip]
+    );
+    if (!row) {
+      await query(
+        "INSERT INTO ip_rate_limits (ip, failed_attempts, last_attempt) VALUES ($1, 1, CURRENT_TIMESTAMP)",
+        [ip]
+      );
     } else {
-      const current = rows[0];
-      const newAttempts = current.failedAttempts + 1;
-      let blockedUntil = current.blockedUntil;
+      const newAttempts = Number(row.failed_attempts) + 1;
+      let blockedUntil = row.blocked_until;
       if (newAttempts >= maxAttempts) {
-        blockedUntil = new Date(now.getTime() + lockoutMinutes * 60 * 1000);
+        blockedUntil = new Date(Date.now() + lockoutMinutes * 60 * 1000).toISOString();
       }
-      await db
-        .update(schema.ipRateLimits)
-        .set({
-          failedAttempts: newAttempts,
-          blockedUntil,
-          lastAttempt: now,
-        })
-        .where(eq(schema.ipRateLimits.ip, ip));
+      await query(
+        "UPDATE ip_rate_limits SET failed_attempts = $1, blocked_until = $2, last_attempt = CURRENT_TIMESTAMP WHERE ip = $3",
+        [newAttempts, blockedUntil, ip]
+      );
     }
   } catch (err) {
     console.error("Record failed attempt error:", err);
@@ -196,16 +203,15 @@ export async function recordFailedAttempt(ip: string, maxAttempts = 5, lockoutMi
 }
 
 /**
- * Reset failed attempts for an IP upon successful login/query
+ * Reset failed attempts for an IP upon successful query
  */
 export async function resetFailedAttempts(ip: string) {
-  const db = getDb();
   try {
     await ensureInitialized();
-    await db
-      .update(schema.ipRateLimits)
-      .set({ failedAttempts: 0, blockedUntil: null, lastAttempt: new Date() })
-      .where(eq(schema.ipRateLimits.ip, ip));
+    await query(
+      "UPDATE ip_rate_limits SET failed_attempts = 0, blocked_until = NULL, last_attempt = CURRENT_TIMESTAMP WHERE ip = $1",
+      [ip]
+    );
   } catch (err) {
     console.error("Reset failed attempts error:", err);
   }

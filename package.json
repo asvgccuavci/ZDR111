@@ -8,12 +8,8 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-  "dependencies": {
-    "@neondatabase/serverless": "^0.10.0",
-    "drizzle-orm": "beta"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "drizzle-kit": "beta",
     "typescript": "^5.4.5",
     "vite": "^5.2.11"
   }
