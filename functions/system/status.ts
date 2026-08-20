@@ -15,11 +15,7 @@ export const onRequest = async (context: any) => { const req = context.request;
 
   try {
     // 初始化数据库连接（从 context.env 获取环境变量，兼容 Cloudflare Pages Functions）
-    const dbUrl = context.env?.DATABASE_URL;
-    if (!dbUrl) {
-      throw new Error("DATABASE_URL environment variable is not set");
-    }
-    initDb(dbUrl);
+    initDb(context.env?.DATABASE_URL);
 
     const db = getDb();
     await ensureInitialized();

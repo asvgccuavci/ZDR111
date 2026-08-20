@@ -5,13 +5,17 @@ import * as schema from "./schema.js";
 // 数据库连接实例（延迟初始化，兼容 Cloudflare Pages Functions 的 context.env）
 let dbInstance: ReturnType<typeof drizzle> | null = null;
 
+// 默认数据库连接串（后备，当环境变量不可用时使用）
+const DEFAULT_DATABASE_URL = "postgresql://neondb_owner:npg_f5JbVgzQI1nl@ep-mute-math-ax7112if-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require";
+
 /**
  * 初始化数据库连接
- * @param connectionString 数据库连接串
+ * @param connectionString 数据库连接串（可选，不传则使用默认值）
  */
-export function initDb(connectionString: string) {
+export function initDb(connectionString?: string) {
   if (!dbInstance) {
-    const sql = neon(connectionString);
+    const connStr = connectionString || DEFAULT_DATABASE_URL;
+    const sql = neon(connStr);
     dbInstance = drizzle(sql, { schema });
   }
   return dbInstance;
