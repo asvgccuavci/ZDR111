@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>成绩查询与教务安全控制系统 · 东北电力大学自动化工程学院</title>
+    <meta name="description" content="东北电力大学自动化工程学院成绩查询系统，提供基于多重身份核验与安全防护的成绩查询及管理员权限控制服务。" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <div class="app-container">
+      <!-- Top Navigation -->
+      <header class="top-nav">
+        <div class="brand-section">
+          <div class="brand-crest">⚡</div>
+          <div class="brand-text">
+            <h1>
+              成绩查询系统
+              <span class="badge-sub">安全防护版</span>
+            </h1>
+            <p><strong>东北电力大学</strong> · 自动化工程学院</p>
+          </div>
+        </div>
+        <div class="nav-actions">
+          <div id="statusIndicator" class="status-pill">
+            <span class="status-dot"></span>
+            <span id="statusText">正在同步状态...</span>
+          </div>
+          <button id="openAdminBtn" class="btn btn-admin">
+            <span>🛡️ 管理控制台</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Announcement Banner -->
+      <div id="announcementBanner" class="announcement-banner" style="display: none;">
+        <div class="announcement-content">
+          <span style="font-size: 16px;">📢</span>
+          <span id="announcementText"></span>
+        </div>
+        <button id="closeAnnouncementBtn" style="background:none;border:none;color:#bae6fd;cursor:pointer;font-size:16px;">✕</button>
+      </div>
+
+      <!-- Main Query Card -->
+      <main class="search-card">
+        <div class="search-card-header">
+          <h2><span>🔐</span> 学生成绩综合查询</h2>
+          <p>请正确选择班级并输入姓名及出生年月（8位），系统将进行三重一致性核验。</p>
+        </div>
+
+        <form id="gradeQueryForm">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">
+                <span>班级名称</span>
+                <span class="hint" id="classCountHint">17个班级</span>
+              </label>
+              <div class="input-wrapper">
+                <span class="input-icon">🏫</span>
+                <input
+                  type="text"
+                  id="queryClass"
+                  class="form-input"
+                  placeholder="如：自动241、自动卓越241..."
+                  autocomplete="off"
+                  list="classList"
+                  required
+                />
+                <datalist id="classList"></datalist>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                <span>学生姓名</span>
+                <span class="hint">实名核验</span>
+              </label>
+              <div class="input-wrapper">
+                <span class="input-icon">👤</span>
+                <input
+                  type="text"
+                  id="queryName"
+                  class="form-input"
+                  placeholder="请输入姓名"
+                  autocomplete="off"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                <span>验证密码</span>
+                <span class="hint">出生年月 8位</span>
+              </label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔑</span>
+                <input
+                  type="password"
+                  id="queryPassword"
+                  class="form-input pw-input"
+                  placeholder="例：20060119"
+                  autocomplete="off"
+                  maxlength="8"
+                  required
+                />
+                <button type="button" id="togglePwBtn" class="toggle-pw-btn" title="显示/隐藏密码">👁️</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Class Filter Chips -->
+          <div class="class-chips">
+            <span class="chip-label">快捷选择：</span>
+            <span class="chip" data-class="自动241">自动241</span>
+            <span class="chip" data-class="自动242">自动242</span>
+            <span class="chip" data-class="自动243">自动243</span>
+            <span class="chip" data-class="自动卓越241">自动卓越241</span>
+            <span class="chip" data-class="测控241">测控241</span>
+            <span class="chip" data-class="测控242">测控242</span>
+            <span class="chip" data-class="机器人241">机器人241</span>
+            <span class="chip" data-class="机器人242">机器人242</span>
+          </div>
+
+          <div class="search-actions">
+            <div class="action-buttons">
+              <button type="submit" id="submitSearchBtn" class="btn btn-primary">
+                <span>🔍 立即查询成绩</span>
+              </button>
+              <button type="button" id="resetSearchBtn" class="btn btn-secondary">
+                <span>↺ 重置输入</span>
+              </button>
+            </div>
+            <div class="security-badge-note">
+              <span>🔒</span>
+              <span>后端加密脱敏 · 频控防刷爆破保护 · 共收录 <strong id="totalStudentsCount">581</strong> 名在册学生</span>
+            </div>
+          </div>
+        </form>
+      </main>
+
+      <!-- Query Results Container -->
+      <section id="resultContainer" class="results-container">
+        <div class="empty-placeholder">
+          <div class="icon">📑</div>
+          <h3>暂无查询结果</h3>
+          <p>请在上表单中完整输入班级、姓名及8位出生年月密码后点击“立即查询”</p>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="site-footer">
+        <div class="footer-badges">
+          <span>⚡ 东北电力大学 · 自动化工程学院</span>
+          <span>🛡️ 身份鉴权 & 权限管控平台</span>
+          <span class="footer-badge">🔒 传输层与存储层多级加密保护</span>
+        </div>
+        <p>© 2026 东北电力大学自动化工程学院 · 版权所有</p>
+      </footer>
+    </div>
+
+    <!-- Admin Login Modal -->
+    <div id="adminLoginModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3><span>🛡️</span> 管理员身份核验</h3>
+          <button id="closeAdminLoginModal" class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <form id="adminLoginForm">
+            <div class="form-group" style="margin-bottom: 16px;">
+              <label class="form-label">管理员账号</label>
+              <div class="input-wrapper">
+                <span class="input-icon">👤</span>
+                <input type="text" id="adminUsername" class="form-input" placeholder="输入管理员账号" required />
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 24px;">
+              <label class="form-label">管理员安全密码</label>
+              <div class="input-wrapper">
+                <span class="input-icon">🔑</span>
+                <input type="password" id="adminPassword" class="form-input" placeholder="输入管理员安全密码" required />
+              </div>
+            </div>
+            <button type="submit" id="adminLoginBtn" class="btn btn-primary" style="width: 100%;">
+              <span>🔓 登录管理控制台</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Console Modal / Full Dashboard -->
+    <div id="adminConsoleModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content wide">
+        <div class="modal-header">
+          <h3>
+            <span>🛡️</span> 学院教务安全管理中心
+            <span class="badge-sub" style="margin-left: 8px; font-size: 11px; background: rgba(99,102,241,0.2); color:#a5b4fc; padding: 2px 8px; border-radius: 12px;">管理员：张东然</span>
+          </h3>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <button id="adminLogoutBtn" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;">
+              退出登录
+            </button>
+            <button id="closeAdminConsoleModal" class="modal-close">✕</button>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="admin-tabs">
+          <button class="tab-btn active" data-tab="tab-control">⚡ 权限总控与开关</button>
+          <button class="tab-btn" data-tab="tab-logs">📊 安全审计日志</button>
+          <button class="tab-btn" data-tab="tab-students">👥 学生名单与成绩管理</button>
+        </div>
+
+        <!-- Tab 1: Permissions & Switch Control -->
+        <div id="tab-control" class="modal-body admin-tab-pane">
+          <!-- Master Switch Toggle -->
+          <div class="master-toggle-card">
+            <div>
+              <h4 style="font-size: 16px; font-weight: 700; color: #fff;">查成绩总开关 (Global Query Switch)</h4>
+              <p style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
+                一键控制全院学生是否允许查询成绩。关闭时学生端查询将提示维护原因。
+              </p>
+            </div>
+            <div class="toggle-switch-wrapper">
+              <span id="masterSwitchStatusText" style="font-weight: 700; color: var(--success);">已允许查询</span>
+              <label class="switch-toggle">
+                <input type="checkbox" id="masterQuerySwitch" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Settings Form -->
+          <form id="adminSettingsForm" style="display: flex; flex-direction: column; gap: 16px;">
+            <div class="form-group">
+              <label class="form-label">
+                <span>通知公告 (发布在学生端首页顶部)</span>
+              </label>
+              <textarea id="settingAnnouncement" class="form-input" style="min-height: 60px; padding: 10px 14px;" placeholder="输入系统公告内容..."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                <span>维护/关闭查询时的提示语 (当总开关关闭时显示)</span>
+              </label>
+              <input type="text" id="settingMaintenanceReason" class="form-input" style="padding: 10px 14px;" placeholder="输入关闭时的维护说明..." />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                <span>班级开放范围 (默认 ALL，或填写允许的班级，逗号分隔)</span>
+              </label>
+              <input type="text" id="settingAllowedClasses" class="form-input" style="padding: 10px 14px;" placeholder="如：ALL 或 自动241,自动242" />
+            </div>
+
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+              <div class="form-group">
+                <label class="form-label">单IP防爆破阈值 (连续失败次数)</label>
+                <input type="number" id="settingRateLimitMax" class="form-input" style="padding: 10px 14px;" min="1" max="50" value="5" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">封禁时长 (分钟)</label>
+                <input type="number" id="settingRateLimitLockout" class="form-input" style="padding: 10px 14px;" min="1" max="1440" value="15" />
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px;">
+              <button type="submit" class="btn btn-primary">
+                <span>💾 保存系统权限设置</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Tab 2: Security Audit Logs -->
+        <div id="tab-logs" class="modal-body admin-tab-pane" style="display: none;">
+          <!-- Metrics Overview -->
+          <div class="admin-stats-grid">
+            <div class="stat-card">
+              <div class="title">总查询尝试</div>
+              <div class="number" id="statTotalQueries">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="title">成功查验</div>
+              <div class="number" style="color: var(--success);" id="statSuccessCount">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="title">密码错误/失败</div>
+              <div class="number" style="color: var(--danger);" id="statFailedCount">0</div>
+            </div>
+            <div class="stat-card">
+              <div class="title">被拦截/频控锁定</div>
+              <div class="number" style="color: var(--warning);" id="statBlockedCount">0</div>
+            </div>
+          </div>
+
+          <!-- Logs Actions -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <select id="logStatusFilter" class="form-input" style="padding: 6px 12px; font-size: 12.5px; width: auto;">
+                <option value="">全部事件类型</option>
+                <option value="SUCCESS">成功 (SUCCESS)</option>
+                <option value="FAILED_PASSWORD">密码错误 (FAILED_PASSWORD)</option>
+                <option value="NOT_FOUND">查无此人 (NOT_FOUND)</option>
+                <option value="BLOCKED">开关拦截 (BLOCKED)</option>
+                <option value="RATE_LIMITED">频控封锁 (RATE_LIMITED)</option>
+              </select>
+              <button id="refreshLogsBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12.5px;">🔄 刷新</button>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="unblockIpsBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12.5px;">解除所有IP限制</button>
+              <button id="clearLogsBtn" class="btn btn-danger" style="padding: 6px 12px; font-size: 12.5px;">清空日志</button>
+            </div>
+          </div>
+
+          <!-- Logs Table -->
+          <div style="overflow-x: auto; max-height: 400px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>IP地址</th>
+                  <th>操作</th>
+                  <th>目标对象</th>
+                  <th>状态</th>
+                  <th>说明与详情</th>
+                </tr>
+              </thead>
+              <tbody id="logsTableBody">
+                <tr><td colspan="6" style="text-align:center; padding: 20px;">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 3: Student & Grade Roster Management -->
+        <div id="tab-students" class="modal-body admin-tab-pane" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; gap: 8px; align-items: center; flex: 1; max-width: 480px;">
+              <input type="text" id="studentSearchInput" class="form-input" placeholder="搜索姓名 / 学号 / 班级..." style="padding: 6px 12px; font-size: 13px;" />
+              <button id="searchStudentBtn" class="btn btn-primary" style="padding: 6px 14px; font-size: 13px;">搜索</button>
+            </div>
+            <button id="addNewStudentBtn" class="btn btn-admin" style="padding: 6px 14px; font-size: 13px;">➕ 新增学生</button>
+          </div>
+
+          <div style="overflow-x: auto; max-height: 420px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>班级</th>
+                  <th>密码 (出生年月)</th>
+                  <th>课程门数</th>
+                  <th>查询状态</th>
+                  <th>管理操作</th>
+                </tr>
+              </thead>
+              <tbody id="studentTableBody">
+                <tr><td colspan="7" style="text-align:center; padding: 20px;">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 13px; color: var(--text-muted);">
+            <span id="studentPaginationInfo">第 1 页</span>
+            <div style="display: flex; gap: 8px;">
+              <button id="prevPageBtn" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;">上一页</button>
+              <button id="nextPageBtn" class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;">下一页</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Student Modal -->
+    <div id="editStudentModal" class="modal-overlay" style="display: none; z-index: 1050;">
+      <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+          <h3 id="editStudentModalTitle">编辑学生信息</h3>
+          <button id="closeEditStudentModal" class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <form id="editStudentForm" style="display: flex; flex-direction: column; gap: 14px;">
+            <input type="hidden" id="editStudentIdHidden" />
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+              <div class="form-group">
+                <label class="form-label">学号</label>
+                <input type="text" id="editStudentId" class="form-input" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">姓名</label>
+                <input type="text" id="editStudentName" class="form-input" required />
+              </div>
+            </div>
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+              <div class="form-group">
+                <label class="form-label">班级</label>
+                <input type="text" id="editStudentClass" class="form-input" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">密码 (8位出生年月)</label>
+                <input type="text" id="editStudentPassword" class="form-input" maxlength="8" required />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">允许该学生查成绩</label>
+              <select id="editStudentQueryEnabled" class="form-input">
+                <option value="true">允许查询</option>
+                <option value="false">单独锁定/禁止查询</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">
+                <span>课程与成绩 (JSON格式)</span>
+              </label>
+              <textarea id="editStudentCoursesJson" class="form-input" style="min-height: 100px; font-family: var(--font-mono); font-size: 12px;" placeholder='[{"name":"自动控制原理","score":85,"credit":2.5}]'></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+              <button type="button" id="deleteStudentBtn" class="btn btn-danger" style="margin-right: auto; display: none;">删除学生</button>
+              <button type="submit" class="btn btn-primary">保存学生记录</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
